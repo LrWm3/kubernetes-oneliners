@@ -1,0 +1,89 @@
+# Create helpful-chaos-monkey, which deletes pods which haven't logged any messages in a while
+# - a "last resort" to the occasional deadlocked pod
+---
+kind: ServiceAccount
+apiVersion: v1
+metadata:
+  name: pod-deletor
+  namespace: default
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: pod-deletor
+  namespace: default
+rules:
+  - apiGroups: [""]
+    resources: ["pods", "pods/log"]
+    verbs: ["get", "patch", "list", "watch", "delete"] 
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: pod-deletor
+  namespace: default
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: pod-deletor
+subjects:
+  - kind: ServiceAccount
+    name: pod-deletor
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    app: helpful-chaos-monkey
+  name: helpful-chaos-monkey
+  namespace: default
+spec:
+  replicas: 1  # Specify the number of replicas you'd like. Here, it's set to 1.
+  selector:
+    matchLabels:
+      app: helpful-chaos-monkey
+  template:
+    metadata:
+      labels:
+        app: helpful-chaos-monkey
+    spec:
+      automountServiceAccountToken: true
+      containers:
+      - command:
+        - /bin/sh
+        - -c
+        - |-
+          while true; do
+              # Get list of pods starting with 'my-annoying-deadlocked-pod', are in 'Ready' status, and do not have containers in 'CrashLoopBackOff'
+              pods=$(kubectl get pods --no-headers -o custom-columns="NAME:.metadata.name,READY:.status.conditions[?(@.type=='Ready')].status,STATUS:.status.phase" | grep "^my-annoying-deadlocked-pod" | awk '{if ($2 == "True" && $3 != "CrashLoopBackOff") print $1}')
+
+              for pod in $pods; do
+                  echo "helpful chaos monkey is checking $pod logs to see if a restart is needed"
+                  # Get the count of logs from the last 30 seconds
+                  log_count=$(kubectl logs $pod --since=30s | wc -l)
+
+                  # If there are no logs in the last 30 seconds, delete the pod
+                  if [ "$log_count" -eq "0" ]; then
+                      kubectl delete pod $pod
+                  fi
+              done
+
+              # Sleep for 30 seconds before re-checking
+              sleep 30
+          done
+        image: public.ecr.aws/r1l6m5k6/aws-kubectl:1.0.0
+        imagePullPolicy: IfNotPresent
+        name: helpful-chaos-monkey
+        resources: {}
+        terminationMessagePath: /dev/termination-log
+        terminationMessagePolicy: File
+      dnsPolicy: Default
+      enableServiceLinks: true
+      hostNetwork: true
+      restartPolicy: Always  # Changed to 'Always' for Deployment
+      schedulerName: default-scheduler
+      securityContext: {}
+      serviceAccount: pod-deletor
+      serviceAccountName: pod-deletor
+      shareProcessNamespace: false
+      terminationGracePeriodSeconds: 30
