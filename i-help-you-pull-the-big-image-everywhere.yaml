@@ -1,0 +1,26 @@
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: i-help-you-pull-the-big-image-everywhere
+  labels:
+    app: i-help-you-pull-the-big-image-everywhere
+spec:
+  selector:
+    matchLabels:
+      name: i-help-you-pull-the-big-image-everywhere
+  template:
+    metadata:
+      labels:
+        name: i-help-you-pull-the-big-image-everywhere
+    spec:
+      containers:
+      - name: i-help-you-pull-the-big-image-everywhere
+        image: big-image:1.0.0
+        command: ["/bin/sh"]
+        args: ["-c", "while true; do echo 'I am here to help you pull the big image :), update me with the new image before releasing :D the big iamge takes a while to pull :( so use me when a new big image is going out!'; sleep 1800;done"]
+        resources:
+          limits:
+            memory: 200Mi
+          requests:
+            cpu: 100m
+            memory: 200Mi
